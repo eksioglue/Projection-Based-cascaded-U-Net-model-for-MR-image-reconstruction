@@ -1,4 +1,4 @@
-# Projection-Based-cascaded-U-Net-model-for-MR-image-reconstruction
+# Article & Dataset
 [Dataset](https://fastmri.med.nyu.edu/) 
 * **Article:** [Projection-Based cascaded U-Net model for MR image reconstruction ({A. Aghabiglou, E.M. Eksioglu}, 2021)](https://www.sciencedirect.com/science/article/abs/pii/S016926072100225X)
 
