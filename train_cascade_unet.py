@@ -41,7 +41,7 @@ class DataTransform:
         self.which_challenge = which_challenge
         self.use_seed = use_seed
 
-    def __call__(self, target, fname, slice):
+    def __call__(self, kspace, target, attrs, fname, slice):
         image = T.to_tensor(target.astype(complex))
         k_space = T.fft2c_new(image)
 
@@ -49,15 +49,15 @@ class DataTransform:
         seed = None if not self.use_seed else tuple(map(ord, fname))
         masked_kspace, mask = T.apply_mask(k_space, self.mask_func, seed)
         inv_mask = (1 - mask)
-
-        tau = 0.0042
-        noisy_data = masked_kspace + (torch.randn(masked_kspace.shape)) / math.sqrt(2) * tau
-        zf = T.ifft2c_new(noisy_data)
+        "Add noise"
+        # tau = 0.0042
+        # masked_kspace = masked_kspace + (torch.randn(masked_kspace.shape)) / math.sqrt(2) * tau
+        zf = T.ifft2c_new(masked_kspace)
         dirty = T.complex_abs(zf).type(torch.FloatTensor)
 
         target = T.to_tensor(target.astype(np.float32))
 
-        return dirty, dirty, target, fname, slice,masked_kspace,inv_mask
+        return dirty, target, fname, slice,masked_kspace,inv_mask
 
 
 class Unet_Model(Model):
@@ -65,17 +65,14 @@ class Unet_Model(Model):
         super().__init__(hparams)
         self.unet = UnetModel(in_chans=1,
                                   out_chans=1,
-                                  # chans=hparams.num_chans,
-                                  # num_pool_layers=hparams.num_pools,
-                                  # drop_prob=hparams.drop_prob,
-                                  chans=64,
-                                  num_pool_layers=4,
-                                  drop_prob=0,
+                                  chans=hparams.num_chans,
+                                  num_pool_layers=hparams.num_pools,
+                                  drop_prob=hparams.drop_prob,
                                   )
 
     def forward(self, input):
         start = timeit.default_timer()
-        output = self.unet(input)
+        output = self.unet(input.unsqueeze(1)).squeeze(1)
         output = torch.add(input, output)
         stop = timeit.default_timer()
         print('Time: ', stop - start)
@@ -99,7 +96,7 @@ class Unet_Model(Model):
         return outUDC5
 
     def training_step(self, batch, batch_idx):
-        _, dirty, target, _, _,masked_kspace,inv_mask = batch
+        dirty, target, _, _,masked_kspace,inv_mask = batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         target = T.normalize(target, mean, std, eps=1e-110)
         output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
@@ -108,34 +105,33 @@ class Unet_Model(Model):
         return dict(loss=loss, log=logs)
 
     def validation_step(self, batch, batch_idx):
-        d0, dirty, target, fname, slice,masked_kspace,inv_mask = batch
+        dirty, target, fname, slice,masked_kspace,inv_mask = batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         target = T.normalize(target, mean, std, eps=1e-110)
         output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
-        logSNR = evaluate.snr(evaluate.to_log((target.squeeze(1)*std + mean).cpu().numpy()),
-                              evaluate.to_log((output.squeeze(1)*std + mean).cpu().numpy()))
+        logSNR = evaluate.snr(evaluate.to_log((target*std + mean).cpu().numpy()),
+                              evaluate.to_log((output*std + mean).cpu().numpy()))
         self.log("val_logSNR", logSNR, on_epoch=True, batch_size=1)
         return {
             'fname': fname,
             'slice': slice,
-            'ZF': (d0.squeeze(1)).cpu().numpy(),
-            'output': (output.squeeze(1) *std + mean).cpu().numpy(),
-            'target': (target.squeeze(1) *std + mean).cpu().numpy(),
+            'ZF': (dirty *std + mean).cpu().numpy(),
+            'output': (output*std + mean).cpu().numpy(),
+            'target': (target*std + mean).cpu().numpy(),
             'val_loss': F.l1_loss(output, target),
         }
 
     def test_step(self, batch, batch_idx):
-        d0, dirty, target, fname, slice,masked_kspace,inv_mask= batch
+        dirty, target, fname, slice,masked_kspace,inv_mask= batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
-        output_cl = torch.clip(output.squeeze(1) *std + mean, min=0, max=None)
-        # output_cl = output.squeeze(0) *std + mean
+
         return {
             'fname': fname,
             'slice': slice,
-            'test_ZF': (d0.squeeze(1)).cpu().numpy(),
-            'test_output': output_cl.cpu().numpy(),
-            'test_target': target.squeeze(1).cpu().numpy(),
+            'test_ZF': (dirty*std + mean).cpu().numpy(),
+            'test_output': (output*std + mean).cpu().numpy(),
+            'test_target': target.cpu().numpy(),
             'test_loss': F.l1_loss(output, target),
         }
 

@@ -40,7 +40,7 @@ class DataTransform:
         self.which_challenge = which_challenge
         self.use_seed = use_seed
 
-    def __call__(self, target, fname, slice):
+    def __call__(self, kspace, target, attrs, fname, slice):
         image = T.to_tensor(target.astype(complex))
         k_space = T.fft2c_new(image)
 
@@ -61,7 +61,7 @@ class DataTransform:
 class Unet_Model(Model):
     def __init__(self, hparams):
         super().__init__(hparams)
-        self.unetwdsr = UnetModel(in_chans=1,
+        self.unet = UnetModel(in_chans=1,
                                   out_chans=1,
                                   chans=hparams.num_chans,
                                   num_pool_layers=hparams.num_pools,
@@ -70,7 +70,7 @@ class Unet_Model(Model):
 
     def forward(self, input):
         start = timeit.default_timer()
-        output = self.unetwdsr(input)
+        output = self.unet(input.unsqueeze(1)).squeeze(1)
         output = torch.add(input, output)
         stop = timeit.default_timer()
         print('Time: ', stop - start)
@@ -90,15 +90,15 @@ class Unet_Model(Model):
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         target = T.normalize(target, mean, std, eps=1e-110)
         output = self.forward(dirty)
-        logSNR = evaluate.snr(evaluate.to_log((target.squeeze(1)*std + mean).cpu().numpy()),
-                              evaluate.to_log((output.squeeze(1)*std + mean).cpu().numpy()))
+        logSNR = evaluate.snr(evaluate.to_log((target*std + mean).cpu().numpy()),
+                              evaluate.to_log((output*std + mean).cpu().numpy()))
         self.log("val_logSNR", logSNR, on_epoch=True, batch_size=1)
         return {
             'fname': fname,
             'slice': slice,
-            'ZF': (dirty.squeeze(1)).cpu().numpy(),
-            'output': (output.squeeze(1) *std + mean).cpu().numpy(),
-            'target': (target.squeeze(1) *std + mean).cpu().numpy(),
+            'ZF': (dirty*std + mean).cpu().numpy(),
+            'output': (output *std + mean).cpu().numpy(),
+            'target': (target *std + mean).cpu().numpy(),
             'val_loss': F.l1_loss(output, target),
         }
 
@@ -109,9 +109,9 @@ class Unet_Model(Model):
         return {
             'fname': fname,
             'slice': slice,
-            'test_ZF': (dirty.squeeze(1)*std+mean).cpu().numpy(),
-            'test_output': output.squeeze(1)*std+mean.cpu().numpy(),
-            'test_target': target.squeeze(1).cpu().numpy(),
+            'test_ZF': (dirty*std+mean).cpu().numpy(),
+            'test_output': output*std+mean.cpu().numpy(),
+            'test_target': target.cpu().numpy(),
             'test_loss': F.l1_loss(output, target),
         }
 

@@ -37,9 +37,9 @@ class Args(argparse.ArgumentParser):
         self.add_argument('--center-fractions', nargs='+', default=[0.08, 0.04], type=float,
                           help='Fraction of low-frequency k-space columns to be sampled. Should '
                                'have the same length as accelerations')
-        self.add_argument('--scname_train', type=str, default='trainingset_fullnumpy', help='GT folder name')
-        self.add_argument('--scname_val', type=str, default='validationset_fullnumpy', help='GT folder name')
-        self.add_argument('--scname_test', type=str, default='testset_fullnumpy', help='GT folder name')
+        self.add_argument('--scname_train', type=str, default='singlecoil_train', help='GT folder name')
+        self.add_argument('--scname_val', type=str, default='singlecoil_val', help='GT folder name')
+        self.add_argument('--scname_test', type=str, default='singlecoil_test', help='GT folder name')
         self.add_argument('--rec_ext', type=str, default='rec_G1_4x', help='rec extension')
         self.add_argument('--rec2_ext', type=str, default=None, help='rec extension')
 

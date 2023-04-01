@@ -46,7 +46,7 @@ class Model(pl.LightningModule):
             root=self.hparams.data_path / f'{data_partition}',
             transform=data_transform,
             sample_rate=1,
-            #challenge=self.hparams.challenge
+            challenge=self.hparams.challenge
         )
         #sampler = DistributedSampler(dataset)
         return DataLoader(
