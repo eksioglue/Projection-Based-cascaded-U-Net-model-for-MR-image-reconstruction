@@ -11,6 +11,9 @@ python train_unet.py --mode train  --challenge singlecoil --data_path "/Path/to/
 ```bash
 python train_cascade_unet.py --mode train  --challenge singlecoil --data_path "/Path/to/Dataset/" --exp cascade_Unet_4x --num-epochs 20 --gpus 2 --batch_size 4 --lr 0.0001  --center-fractions 0.08 --accelerations 4
 ```
+```bash
+python train_projectionbased_unet.py --mode train  --challenge singlecoil --data_path "/Path/to/Dataset/" --exp projection_Unet_4x --num-epochs 20 --gpus 2 --batch_size 4 --lr 0.0001  --center-fractions 0.08 --accelerations 4
+```
 ## Test
 
 ```bash
