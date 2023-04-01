@@ -15,8 +15,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from common import evaluate
-from dclayer.dclayer import DClayer 
-import timeit
+from dclayer.dclayer import updated_DClayer
 
 class DataTransform:
     """
@@ -69,37 +68,49 @@ class Unet_Model(Model):
                                   num_pool_layers=hparams.num_pools,
                                   drop_prob=hparams.drop_prob,
                                   )
+        self.unet_model = UnetModel(
+            in_chans=5,
+            out_chans=1,
+            chans=hparams.num_chans,
+            num_pool_layers=hparams.num_pools,
+            drop_prob=hparams.drop_prob).cuda()
 
     def forward(self, input):
-        start = timeit.default_timer()
         output = self.unet(input.unsqueeze(1)).squeeze(1)
         output = torch.add(input, output)
-        stop = timeit.default_timer()
-        print('Time: ', stop - start)
+        return output
+    
+    def last_layer(self, input):
+        output = self.unet_model(input).squeeze(1)
         return output
 
-    def cascad(self, input, mean, std, masked_kspace, inv_mask):
+    def updatedcascad(self, input, mean, std, masked_kspace, inv_mask):
         unet1 = self.forward(input)
-        outUDC1 = DClayer(unet1, masked_kspace, inv_mask, mean, std)
+        outUDC1, int_output1 = updated_DClayer(unet1, masked_kspace, inv_mask, mean, std)
 
         unet2 = self.forward(outUDC1)
-        outUDC2 = DClayer(unet2, masked_kspace, inv_mask, mean, std)
+        outUDC2, int_output2 = updated_DClayer(unet2, masked_kspace, inv_mask, mean, std)
 
         unet3 = self.forward(outUDC2)
-        outUDC3 = DClayer(unet3, masked_kspace, inv_mask, mean, std)
+        outUDC3, int_output3 = updated_DClayer(unet3, masked_kspace, inv_mask, mean, std)
 
         unet4 = self.forward(outUDC3)
-        outUDC4 = DClayer(unet4, masked_kspace, inv_mask, mean, std)
+        outUDC4, int_output4 = updated_DClayer(unet4, masked_kspace, inv_mask, mean, std)
 
-        unet5 = self.forward(outUDC4)
-        outUDC5 = DClayer(unet5, masked_kspace, inv_mask, mean, std)
+        concat = torch.cat([outUDC4.unsqueeze(1), int_output1.unsqueeze(1),  # (batchSize, h ,w, channel_no=10)
+                            int_output2.unsqueeze(1), int_output3.unsqueeze(1),
+                            int_output4.unsqueeze(1)], 1)
+
+        unet5 = self.last_layer(concat)
+        output = torch.add(outUDC4, unet5)
+        outUDC5, outIntermed5 = updated_DClayer(output, masked_kspace, inv_mask, mean, std)
         return outUDC5
 
     def training_step(self, batch, batch_idx):
         dirty, target, _, _,masked_kspace,inv_mask = batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         target = T.normalize(target, mean, std, eps=1e-110)
-        output = self.cascad(dirty, mean, std, masked_kspace, inv_mask)
+        output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
         loss = F.l1_loss(output, target)
         logs = {'loss': loss.item()}
         return dict(loss=loss, log=logs)
@@ -108,7 +119,7 @@ class Unet_Model(Model):
         dirty, target, fname, slice,masked_kspace,inv_mask = batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
         target = T.normalize(target, mean, std, eps=1e-110)
-        output = self.cascad(dirty, mean, std, masked_kspace, inv_mask)
+        output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
         logSNR = evaluate.snr(evaluate.to_log((target*std + mean).cpu().numpy()),
                               evaluate.to_log((output*std + mean).cpu().numpy()))
         self.log("val_logSNR", logSNR, on_epoch=True, batch_size=1)
@@ -124,7 +135,7 @@ class Unet_Model(Model):
     def test_step(self, batch, batch_idx):
         dirty, target, fname, slice,masked_kspace,inv_mask= batch
         dirty, mean, std = T.normalize_instance(dirty, eps=1e-110)
-        output = self.cascad(dirty, mean, std, masked_kspace, inv_mask)
+        output = self.updatedcascad(dirty, mean, std, masked_kspace, inv_mask)
         return {
             'fname': fname,
             'slice': slice,
